@@ -430,38 +430,6 @@ class WallpaperApp:
                                       bg=self.C_CARD)
         self.thumb_canvas.pack(fill=X, padx=4, pady=3)
 
-        # 壁纸源选择行
-        source_row = tk.Frame(bottom, bg=self.C_BG)
-        source_row.pack(fill=X, pady=(0, 2))
-
-        ttk.Label(source_row, text="壁纸源:", style="Info.TLabel").pack(side=LEFT)
-        source_options = ['Bing 每日', 'Pexels', 'Pixabay', '搜图神器']
-        source_values = ['bing', 'pexels', 'pixabay', 'soutu']
-        self._source_value_map = dict(zip(source_options, source_values))
-        self._source_reverse_map = dict(zip(source_values, source_options))
-        current_label = self._source_reverse_map.get(
-            self.config.get('source', 'bing'), 'Bing 每日')
-
-        self.source_var = tk.StringVar(value=current_label)
-        self.source_combo = ttk.Combobox(
-            source_row, textvariable=self.source_var,
-            values=source_options, state='readonly', width=12,
-            font=("Microsoft YaHei UI", 9))
-        self.source_combo.pack(side=LEFT, padx=4)
-        self.source_combo.bind('<<ComboboxSelected>>', self._on_source_change)
-
-        ttk.Label(source_row, text="Pexels Key:", style="Sub.TLabel").pack(side=LEFT, padx=(12, 2))
-        self.ent_pexels = ttk.Entry(source_row, font=("Microsoft YaHei UI", 9), width=16)
-        self.ent_pexels.insert(0, self.config.get('pexels_key', ''))
-        self.ent_pexels.pack(side=LEFT, padx=2)
-
-        ttk.Label(source_row, text="Pixabay Key:", style="Sub.TLabel").pack(side=LEFT, padx=(8, 2))
-        self.ent_pixabay = ttk.Entry(source_row, font=("Microsoft YaHei UI", 9), width=16)
-        self.ent_pixabay.insert(0, self.config.get('pixabay_key', ''))
-        self.ent_pixabay.pack(side=LEFT, padx=2)
-        ttk.Button(source_row, text="保存", bootstyle="outline",
-                   command=self._save_keys, width=5).pack(side=LEFT, padx=4)
-
         # 设置行
         settings_row = tk.Frame(bottom, bg=self.C_BG)
         settings_row.pack(fill=X)
@@ -476,6 +444,40 @@ class WallpaperApp:
         ttk.Label(settings_row, text="分钟", style="Sub.TLabel").pack(side=LEFT, padx=(2, 6))
         ttk.Button(settings_row, text="应用", bootstyle="outline",
                    command=self._apply_interval, width=5).pack(side=LEFT)
+
+        ttk.Separator(settings_row, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=10)
+
+        # 壁纸源选择
+        ttk.Label(settings_row, text="源:", style="Info.TLabel").pack(side=LEFT)
+        source_options = ['Bing 每日', 'Pexels', 'Pixabay', '搜图神器']
+        source_values = ['bing', 'pexels', 'pixabay', 'soutu']
+        self._source_value_map = dict(zip(source_options, source_values))
+        self._source_reverse_map = dict(zip(source_values, source_options))
+        current_label = self._source_reverse_map.get(
+            self.config.get('source', 'bing'), 'Bing 每日')
+
+        self.source_var = tk.StringVar(value=current_label)
+        self.source_combo = ttk.Combobox(
+            settings_row, textvariable=self.source_var,
+            values=source_options, state='readonly', width=10,
+            font=("Microsoft YaHei UI", 9))
+        self.source_combo.pack(side=LEFT, padx=4)
+        self.source_combo.bind('<<ComboboxSelected>>', self._on_source_change)
+
+        # API Key 输入（按源动态显示）
+        self._key_label_pexels = ttk.Label(settings_row, text="Key:", style="Sub.TLabel")
+        self._key_ent_pexels = ttk.Entry(settings_row, font=("Microsoft YaHei UI", 9), width=20)
+        self._key_ent_pexels.insert(0, self.config.get('pexels_key', ''))
+
+        self._key_label_pixabay = ttk.Label(settings_row, text="Key:", style="Sub.TLabel")
+        self._key_ent_pixabay = ttk.Entry(settings_row, font=("Microsoft YaHei UI", 9), width=20)
+        self._key_ent_pixabay.insert(0, self.config.get('pixabay_key', ''))
+
+        self._btn_save_keys = ttk.Button(settings_row, text="保存", bootstyle="outline",
+                                         command=self._save_keys, width=4)
+
+        # 根据当前源显示对应的 Key 输入框
+        self._update_key_visibility()
 
         ttk.Separator(settings_row, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=10)
 
@@ -874,10 +876,33 @@ class WallpaperApp:
         name_map = {'bing': 'Bing 每日', 'pexels': 'Pexels',
                     'pixabay': 'Pixabay', 'soutu': '搜图神器'}
         self._set_status(f"壁纸源已切换为 {name_map.get(value, value)}")
+        self._update_key_visibility()
+
+    def _update_key_visibility(self):
+        """根据当前源显示/隐藏对应的 Key 输入框"""
+        source = self.config.get('source', 'bing')
+
+        # 先全部隐藏
+        self._key_label_pexels.pack_forget()
+        self._key_ent_pexels.pack_forget()
+        self._key_label_pixabay.pack_forget()
+        self._key_ent_pixabay.pack_forget()
+        self._btn_save_keys.pack_forget()
+
+        if source == 'pexels':
+            self._key_label_pexels.configure(text="Pexels Key:")
+            self._key_label_pexels.pack(side=LEFT, padx=(6, 2))
+            self._key_ent_pexels.pack(side=LEFT, padx=2)
+            self._btn_save_keys.pack(side=LEFT, padx=4)
+        elif source == 'pixabay':
+            self._key_label_pixabay.configure(text="Pixabay Key:")
+            self._key_label_pixabay.pack(side=LEFT, padx=(6, 2))
+            self._key_ent_pixabay.pack(side=LEFT, padx=2)
+            self._btn_save_keys.pack(side=LEFT, padx=4)
 
     def _save_keys(self):
-        self.config['pexels_key'] = self.ent_pexels.get().strip()
-        self.config['pixabay_key'] = self.ent_pixabay.get().strip()
+        self.config['pexels_key'] = self._key_ent_pexels.get().strip()
+        self.config['pixabay_key'] = self._key_ent_pixabay.get().strip()
         save_config(self.config)
         self._set_status("API Key 已保存")
 
