@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
     'download_dir': str(BASE_DIR / 'downloads'),
     'auto_switch': False,
     'source': 'bing',
+    'fetch_count': 10,
     'pexels_key': '',
     'pixabay_key': '',
 }
@@ -464,6 +465,17 @@ class WallpaperApp:
         self.source_combo.pack(side=LEFT, padx=4)
         self.source_combo.bind('<<ComboboxSelected>>', self._on_source_change)
 
+        # 获取数量
+        ttk.Label(settings_row, text="数量:", style="Sub.TLabel").pack(side=LEFT, padx=(6, 2))
+        count_options = ['10', '20', '30', '50']
+        self.count_var = tk.StringVar(value=str(self.config.get('fetch_count', 10)))
+        self.count_combo = ttk.Combobox(
+            settings_row, textvariable=self.count_var,
+            values=count_options, state='readonly', width=4,
+            font=("Microsoft YaHei UI", 9))
+        self.count_combo.pack(side=LEFT, padx=2)
+        self.count_combo.bind('<<ComboboxSelected>>', self._on_count_change)
+
         # API Key 输入（按源动态显示）
         self._key_label_pexels = ttk.Label(settings_row, text="Key:", style="Sub.TLabel")
         self._key_ent_pexels = ttk.Entry(settings_row, font=("Microsoft YaHei UI", 9), width=20)
@@ -505,6 +517,12 @@ class WallpaperApp:
         self._canvas_img_id = None
         self.preview_canvas.bind('<Configure>', self._on_canvas_resize)
 
+        # 高清加载提示（浮在预览区右下角）
+        self._hd_loading_label = tk.Label(
+            self.preview_canvas, text="加载高清中...",
+            font=("Microsoft YaHei UI", 9), fg='white', bg='#00000099',
+            padx=8, pady=3)
+
     # ──────────────── 获取壁纸 ────────────────
 
     def do_fetch(self):
@@ -525,7 +543,7 @@ class WallpaperApp:
             'soutu':  ['soutu', 'bing', 'pexels', 'pixabay'],
         }
         order = sources_order.get(source, sources_order['bing'])
-        target_count = 10
+        target_count = self.config.get('fetch_count', 10)
         seen_ids = set(w.id for w in self.wallpapers)
         valid_wps = []
 
@@ -539,7 +557,11 @@ class WallpaperApp:
                 page = random.randint(1, 5)
                 raw_list = fetch_pixabay_wallpapers(self.config, page=page)
             else:
+                # 搜图神器：请求数量与目标数量一致
+                orig_size = self.config.get('page_size', 10)
+                self.config['page_size'] = max(target_count, 10)
                 raw_list = fetch_wallpapers(self.config)
+                self.config['page_size'] = orig_size
 
             if not raw_list:
                 continue
@@ -715,9 +737,11 @@ class WallpaperApp:
         # 如果大图已缓存，直接显示大图
         if idx in self.large_pil_images:
             self._show_preview_pil(self.large_pil_images[idx])
+            self._hd_loading_label.place_forget()
         else:
-            # 后台加载大图
+            # 后台加载大图，显示加载提示
             self._loading_large_for = idx
+            self._hd_loading_label.place(relx=1.0, rely=1.0, anchor='se', x=-10, y=-10)
             threading.Thread(target=self._load_large_thread, args=(idx,), daemon=True).start()
 
         # 信息
@@ -782,6 +806,7 @@ class WallpaperApp:
 
     def _on_large_loaded(self, idx):
         """大图加载完成，如果仍是当前选中项则替换预览"""
+        self._hd_loading_label.place_forget()
         if idx == self.current_index and idx in self.large_pil_images:
             self._show_preview_pil(self.large_pil_images[idx])
 
@@ -877,6 +902,15 @@ class WallpaperApp:
                     'pixabay': 'Pixabay', 'soutu': '搜图神器'}
         self._set_status(f"壁纸源已切换为 {name_map.get(value, value)}")
         self._update_key_visibility()
+
+    def _on_count_change(self, event=None):
+        try:
+            count = int(self.count_var.get())
+            self.config['fetch_count'] = count
+            save_config(self.config)
+            self._set_status(f"每次获取 {count} 张壁纸")
+        except ValueError:
+            pass
 
     def _update_key_visibility(self):
         """根据当前源显示/隐藏对应的 Key 输入框"""
