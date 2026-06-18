@@ -467,14 +467,14 @@ class WallpaperApp:
 
         # 获取数量
         ttk.Label(settings_row, text="数量:", style="Sub.TLabel").pack(side=LEFT, padx=(6, 2))
-        count_options = ['10', '20', '30', '50']
         self.count_var = tk.StringVar(value=str(self.config.get('fetch_count', 10)))
-        self.count_combo = ttk.Combobox(
+        self.count_spin = tk.Spinbox(
             settings_row, textvariable=self.count_var,
-            values=count_options, state='readonly', width=4,
+            from_=1, to=100, width=4,
             font=("Microsoft YaHei UI", 9))
-        self.count_combo.pack(side=LEFT, padx=2)
-        self.count_combo.bind('<<ComboboxSelected>>', self._on_count_change)
+        self.count_spin.pack(side=LEFT, padx=2)
+        self.count_spin.bind('<FocusOut>', self._on_count_change)
+        self.count_spin.bind('<Return>', self._on_count_change)
 
         # API Key 输入（按源动态显示）
         self._key_label_pexels = ttk.Label(settings_row, text="Key:", style="Sub.TLabel")
@@ -905,12 +905,13 @@ class WallpaperApp:
 
     def _on_count_change(self, event=None):
         try:
-            count = int(self.count_var.get())
+            count = max(1, min(100, int(self.count_var.get())))
+            self.count_var.set(str(count))
             self.config['fetch_count'] = count
             save_config(self.config)
             self._set_status(f"每次获取 {count} 张壁纸")
         except ValueError:
-            pass
+            self.count_var.set(str(self.config.get('fetch_count', 10)))
 
     def _update_key_visibility(self):
         """根据当前源显示/隐藏对应的 Key 输入框"""
