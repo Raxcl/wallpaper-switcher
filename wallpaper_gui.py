@@ -798,13 +798,18 @@ class WallpaperApp:
             self._show_preview_pil(self.pil_images[idx])
 
     def _load_large_thread(self, idx):
-        """后台下载大图"""
+        """后台下载大图，失败则回退到缩略图"""
         if idx >= len(self.wallpapers):
             self.root.after(0, self._hide_hd_loading)
             return
         wp = self.wallpapers[idx]
-        url = wp.large_url or wp.thumb_url
-        result = download_image_bytes(url, self.config)
+        # 先尝试大图
+        result = None
+        if wp.large_url:
+            result = download_image_bytes(wp.large_url, self.config)
+        # 大图失败，回退到缩略图
+        if not result and wp.thumb_url:
+            result = download_image_bytes(wp.thumb_url, self.config)
         if result and idx == self._loading_large_for:
             _bytes, img = result
             self.large_pil_images[idx] = img
@@ -849,7 +854,9 @@ class WallpaperApp:
         threading.Thread(target=self._set_thread, args=(wp,), daemon=True).start()
 
     def _set_thread(self, wp):
-        result = download_image_bytes(wp.large_url or wp.thumb_url, self.config)
+        result = download_image_bytes(wp.large_url, self.config) if wp.large_url else None
+        if not result and wp.thumb_url:
+            result = download_image_bytes(wp.thumb_url, self.config)
         if result:
             content, img = result
             path = CACHE_DIR / f"wallpaper_{wp.id}.jpg"
@@ -883,7 +890,9 @@ class WallpaperApp:
         threading.Thread(target=self._dl_thread, args=(wp,), daemon=True).start()
 
     def _dl_thread(self, wp):
-        result = download_image_bytes(wp.large_url or wp.thumb_url, self.config)
+        result = download_image_bytes(wp.large_url, self.config) if wp.large_url else None
+        if not result and wp.thumb_url:
+            result = download_image_bytes(wp.thumb_url, self.config)
         if result:
             content, img = result
             safe_title = "".join(c for c in (wp.title or str(wp.id)) if c.isalnum() or c in '._- ')[:40]
