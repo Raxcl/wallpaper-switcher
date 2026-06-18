@@ -164,7 +164,7 @@ def fetch_bing_wallpapers(config):
             urlbase = img.get('urlbase', '')
             if not urlbase:
                 continue
-            large = f"https://www.bing.com{urlbase}_UHD.jpg"
+            large = f"https://www.bing.com{urlbase}_1920x1080.jpg"
             thumb = f"https://www.bing.com{urlbase}_1920x1080.jpg"
             img['width'] = 3840
             img['height'] = 2160
@@ -199,8 +199,8 @@ def fetch_pexels_wallpapers(config, page=1):
         result = []
         for photo in data.get('photos', []):
             src = photo.get('src', {})
-            result.append(_normalize_wp(photo, src.get('original', ''),
-                                        src.get('large2x', ''), 'pexels'))
+            result.append(_normalize_wp(photo, src.get('large2x', ''),
+                                        src.get('tiny', ''), 'pexels'))
         return result
     except Exception as e:
         logger.error(f"Pexels 壁纸获取失败: {e}")
