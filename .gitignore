@@ -7,3 +7,6 @@ config.json
 *.log
 *.png
 history.json
+build/
+dist/
+*.spec

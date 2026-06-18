@@ -30,7 +30,12 @@ import ctypes
 
 # ─────────────────────── 路径 ───────────────────────
 
-BASE_DIR = Path(__file__).parent
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后：可写文件放在 exe 同级目录
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
+
 CONFIG_FILE = BASE_DIR / 'config.json'
 HISTORY_FILE = BASE_DIR / 'history.json'
 CACHE_DIR = BASE_DIR / 'cache'
