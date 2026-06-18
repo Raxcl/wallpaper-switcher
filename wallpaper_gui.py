@@ -373,7 +373,7 @@ class WallpaperApp:
         threading.Thread(target=self._fetch_thread, daemon=True).start()
 
     def _fetch_thread(self):
-        """获取壁纸，确保返回 10 张缩略图有效的壁纸"""
+        """获取壁纸，过滤失效域名，确保返回 10 张有效壁纸"""
         target_count = 10
         max_batches = 5  # 最多尝试 5 批 API 请求
         seen_ids = set(w.id for w in self.wallpapers)
@@ -395,15 +395,12 @@ class WallpaperApp:
                 if _is_dead_url(large_url) and _is_dead_url(thumb_url):
                     continue
 
-                # 验证缩略图是否可下载
-                check_url = thumb_url if not _is_dead_url(thumb_url) else large_url
-                if download_image_bytes(check_url, self.config):
-                    valid_wps.append(d)
-                    if len(valid_wps) >= target_count:
-                        self.root.after(0, lambda n=len(valid_wps): self._set_status(
-                            f"已验证 {n} 张有效壁纸"))
-                        self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
-                        return
+                valid_wps.append(d)
+                if len(valid_wps) >= target_count:
+                    self.root.after(0, lambda n=len(valid_wps): self._set_status(
+                        f"已筛选 {n} 张有效壁纸"))
+                    self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
+                    return
 
             # 批次间短暂延迟，避免请求过快
             if batch < max_batches - 1:
