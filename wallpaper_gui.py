@@ -520,7 +520,7 @@ class WallpaperApp:
         # 高清加载提示（浮在预览区右下角）
         self._hd_loading_label = tk.Label(
             self.preview_canvas, text="加载高清中...",
-            font=("Microsoft YaHei UI", 9), fg='white', bg='#00000099',
+            font=("Microsoft YaHei UI", 9), fg='white', bg='#333333',
             padx=8, pady=3)
 
     # ──────────────── 获取壁纸 ────────────────
