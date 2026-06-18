@@ -20,6 +20,8 @@ from pathlib import Path
 from datetime import datetime
 
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from PIL import Image, ImageTk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -57,6 +59,9 @@ DEFAULT_CONFIG = {
     'timeout': 15,
     'download_dir': str(BASE_DIR / 'downloads'),
     'auto_switch': False,
+    'source': 'bing',
+    'pexels_key': '',
+    'pixabay_key': '',
 }
 
 
@@ -124,6 +129,109 @@ def fetch_wallpapers(config):
     except Exception as e:
         logger.error(f"获取壁纸列表失败: {e}")
     return []
+
+
+def _normalize_wp(d, large_url, thumb_url, source_tag):
+    """将不同来源的数据统一为标准壁纸 dict"""
+    wid = d.get('id') or d.get('startdate') or d.get('urlbase', '')
+    return {
+        'id': f"{source_tag}_{wid}",
+        'title': d.get('title', '') or d.get('copyright', '') or '',
+        'width': d.get('width', 0),
+        'height': d.get('height', 0),
+        'tagList': [],
+        'largeUrl': large_url,
+        'thumbUrl': thumb_url,
+    }
+
+
+def fetch_bing_wallpapers(config):
+    """Bing 每日壁纸，无需 API Key，每天最多取 8 张"""
+    try:
+        url = 'https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN'
+        r = requests.get(url, timeout=config['timeout'], verify=False)
+        r.raise_for_status()
+        data = r.json()
+        images = data.get('images', [])
+        result = []
+        for img in images:
+            urlbase = img.get('urlbase', '')
+            if not urlbase:
+                continue
+            large = f"https://www.bing.com{urlbase}_UHD.jpg"
+            thumb = f"https://www.bing.com{urlbase}_1920x1080.jpg"
+            img['width'] = 3840
+            img['height'] = 2160
+            result.append(_normalize_wp(img, large, thumb, 'bing'))
+        return result
+    except Exception as e:
+        logger.error(f"Bing 壁纸获取失败: {e}")
+        return []
+
+
+def fetch_pexels_wallpapers(config, page=1):
+    """Pexels 壁纸，需要 API Key"""
+    key = config.get('pexels_key', '')
+    if not key:
+        return []
+    try:
+        headers = {'Authorization': key}
+        queries = ['nature', 'landscape', 'mountain', 'ocean', 'city',
+                   'forest', 'sky', 'architecture', 'abstract', 'space']
+        q = random.choice(queries)
+        params = {
+            'query': q,
+            'orientation': 'landscape',
+            'size': 'large',
+            'per_page': 15,
+            'page': page,
+        }
+        r = requests.get('https://api.pexels.com/v1/search',
+                         headers=headers, params=params, timeout=config['timeout'], verify=False)
+        r.raise_for_status()
+        data = r.json()
+        result = []
+        for photo in data.get('photos', []):
+            src = photo.get('src', {})
+            result.append(_normalize_wp(photo, src.get('original', ''),
+                                        src.get('large2x', ''), 'pexels'))
+        return result
+    except Exception as e:
+        logger.error(f"Pexels 壁纸获取失败: {e}")
+        return []
+
+
+def fetch_pixabay_wallpapers(config, page=1):
+    """Pixabay 壁纸，需要 API Key"""
+    key = config.get('pixabay_key', '')
+    if not key:
+        return []
+    try:
+        queries = ['nature', 'landscape', 'mountain', 'ocean', 'sunset',
+                   'forest', 'city', 'flowers', 'aurora', 'stars']
+        q = random.choice(queries)
+        params = {
+            'key': key,
+            'q': q,
+            'image_type': 'photo',
+            'orientation': 'horizontal',
+            'min_width': 1920,
+            'min_height': 1080,
+            'per_page': 20,
+            'page': page,
+        }
+        r = requests.get('https://pixabay.com/api/',
+                         params=params, timeout=config['timeout'], verify=False)
+        r.raise_for_status()
+        data = r.json()
+        result = []
+        for hit in data.get('hits', []):
+            result.append(_normalize_wp(hit, hit.get('largeImageURL', ''),
+                                        hit.get('webformatURL', ''), 'pixabay'))
+        return result
+    except Exception as e:
+        logger.error(f"Pixabay 壁纸获取失败: {e}")
+        return []
 
 
 def download_image_bytes(url, config):
@@ -322,6 +430,38 @@ class WallpaperApp:
                                       bg=self.C_CARD)
         self.thumb_canvas.pack(fill=X, padx=4, pady=3)
 
+        # 壁纸源选择行
+        source_row = tk.Frame(bottom, bg=self.C_BG)
+        source_row.pack(fill=X, pady=(0, 2))
+
+        ttk.Label(source_row, text="壁纸源:", style="Info.TLabel").pack(side=LEFT)
+        source_options = ['Bing 每日', 'Pexels', 'Pixabay', '搜图神器']
+        source_values = ['bing', 'pexels', 'pixabay', 'soutu']
+        self._source_value_map = dict(zip(source_options, source_values))
+        self._source_reverse_map = dict(zip(source_values, source_options))
+        current_label = self._source_reverse_map.get(
+            self.config.get('source', 'bing'), 'Bing 每日')
+
+        self.source_var = tk.StringVar(value=current_label)
+        self.source_combo = ttk.Combobox(
+            source_row, textvariable=self.source_var,
+            values=source_options, state='readonly', width=12,
+            font=("Microsoft YaHei UI", 9))
+        self.source_combo.pack(side=LEFT, padx=4)
+        self.source_combo.bind('<<ComboboxSelected>>', self._on_source_change)
+
+        ttk.Label(source_row, text="Pexels Key:", style="Sub.TLabel").pack(side=LEFT, padx=(12, 2))
+        self.ent_pexels = ttk.Entry(source_row, font=("Microsoft YaHei UI", 9), width=16)
+        self.ent_pexels.insert(0, self.config.get('pexels_key', ''))
+        self.ent_pexels.pack(side=LEFT, padx=2)
+
+        ttk.Label(source_row, text="Pixabay Key:", style="Sub.TLabel").pack(side=LEFT, padx=(8, 2))
+        self.ent_pixabay = ttk.Entry(source_row, font=("Microsoft YaHei UI", 9), width=16)
+        self.ent_pixabay.insert(0, self.config.get('pixabay_key', ''))
+        self.ent_pixabay.pack(side=LEFT, padx=2)
+        ttk.Button(source_row, text="保存", bootstyle="outline",
+                   command=self._save_keys, width=5).pack(side=LEFT, padx=4)
+
         # 设置行
         settings_row = tk.Frame(bottom, bg=self.C_BG)
         settings_row.pack(fill=X)
@@ -374,23 +514,44 @@ class WallpaperApp:
         threading.Thread(target=self._fetch_thread, daemon=True).start()
 
     def _fetch_thread(self):
-        """获取壁纸，过滤失效域名，确保返回 10 张有效壁纸"""
+        """多源获取壁纸，自动 fallback 到其他源"""
+        source = self.config.get('source', 'bing')
+        sources_order = {
+            'bing':   ['bing', 'pexels', 'pixabay', 'soutu'],
+            'pexels': ['pexels', 'pixabay', 'bing', 'soutu'],
+            'pixabay':['pixabay', 'pexels', 'bing', 'soutu'],
+            'soutu':  ['soutu', 'bing', 'pexels', 'pixabay'],
+        }
+        order = sources_order.get(source, sources_order['bing'])
         target_count = 10
-        max_batches = 5  # 最多尝试 5 批 API 请求
         seen_ids = set(w.id for w in self.wallpapers)
         valid_wps = []
 
-        for batch in range(max_batches):
-            raw = fetch_wallpapers(self.config)
-            if not raw:
+        for src in order:
+            if src == 'bing':
+                raw_list = fetch_bing_wallpapers(self.config)
+            elif src == 'pexels':
+                page = random.randint(1, 5)
+                raw_list = fetch_pexels_wallpapers(self.config, page=page)
+            elif src == 'pixabay':
+                page = random.randint(1, 5)
+                raw_list = fetch_pixabay_wallpapers(self.config, page=page)
+            else:
+                raw_list = fetch_wallpapers(self.config)
+
+            if not raw_list:
                 continue
 
-            for d in raw:
+            source_name = {'bing': 'Bing', 'pexels': 'Pexels',
+                           'pixabay': 'Pixabay', 'soutu': '搜图神器'}
+            self.root.after(0, lambda n=source_name.get(src, src):
+                            self._set_status(f"正在从 {n} 获取壁纸..."))
+
+            for d in raw_list:
                 if d.get('id') in seen_ids:
                     continue
                 seen_ids.add(d.get('id'))
 
-                # 预过滤：大图和缩略图都失效的直接跳过
                 large_url = d.get('largeUrl', '')
                 thumb_url = d.get('thumbUrl', '')
                 if _is_dead_url(large_url) and _is_dead_url(thumb_url):
@@ -399,13 +560,9 @@ class WallpaperApp:
                 valid_wps.append(d)
                 if len(valid_wps) >= target_count:
                     self.root.after(0, lambda n=len(valid_wps): self._set_status(
-                        f"已筛选 {n} 张有效壁纸"))
+                        f"已从 {source_name.get(src, src)} 获取 {n} 张壁纸"))
                     self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
                     return
-
-            # 批次间短暂延迟，避免请求过快
-            if batch < max_batches - 1:
-                time.sleep(0.5)
 
         self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
 
@@ -708,6 +865,21 @@ class WallpaperApp:
             self._set_status("下载失败")
 
     # ──────────────── 设置面板 ────────────────
+
+    def _on_source_change(self, event=None):
+        label = self.source_var.get()
+        value = self._source_value_map.get(label, 'bing')
+        self.config['source'] = value
+        save_config(self.config)
+        name_map = {'bing': 'Bing 每日', 'pexels': 'Pexels',
+                    'pixabay': 'Pixabay', 'soutu': '搜图神器'}
+        self._set_status(f"壁纸源已切换为 {name_map.get(value, value)}")
+
+    def _save_keys(self):
+        self.config['pexels_key'] = self.ent_pexels.get().strip()
+        self.config['pixabay_key'] = self.ent_pixabay.get().strip()
+        save_config(self.config)
+        self._set_status("API Key 已保存")
 
     def _browse_dir(self):
         d = filedialog.askdirectory(initialdir=str(self.download_dir))
