@@ -90,7 +90,7 @@ def save_history(history):
 
 # ─────────────────────── API ───────────────────────
 
-KNOWN_DEAD = {'img.hb.aicdn.com', 'gd-hbimg.huaban.com'}
+KNOWN_DEAD = {'img.hb.aicdn.com'}
 
 
 def _is_dead_url(url):
