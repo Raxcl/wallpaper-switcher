@@ -121,7 +121,7 @@ def fetch_wallpapers(config):
         'isOperation': 1,
     }
     try:
-        r = requests.post(config['api_url'], headers=headers, json=payload, timeout=config['timeout'])
+        r = requests.post(config['api_url'], headers=headers, json=payload, timeout=config['timeout'], verify=False)
         r.raise_for_status()
         data = r.json()
         if data.get('code') == 200 and data.get('data'):
@@ -248,7 +248,7 @@ def download_image_bytes(url, config):
         r = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://huaban.com/',
-        }, timeout=config['timeout'])
+        }, timeout=config['timeout'], verify=False)
         if r.status_code != 200 or len(r.content) < 1024:
             return None
         img = Image.open(io.BytesIO(r.content))
