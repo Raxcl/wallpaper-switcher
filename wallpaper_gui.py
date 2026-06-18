@@ -33,6 +33,7 @@ CONFIG_FILE = BASE_DIR / 'config.json'
 HISTORY_FILE = BASE_DIR / 'history.json'
 CACHE_DIR = BASE_DIR / 'cache'
 LOG_FILE = BASE_DIR / 'wallpaper_gui.log'
+MAX_WALLPAPER_CACHE = 50  # 壁纸列表最大缓存数量
 
 # ─────────────────────── 日志 ───────────────────────
 
@@ -200,6 +201,7 @@ class WallpaperApp:
         self.auto_interval = self.config.get('interval_minutes', 30)
         self._auto_job = None
         self._fetching = False
+        self._cancel_thumbs = False
 
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -360,30 +362,95 @@ class WallpaperApp:
         threading.Thread(target=self._fetch_thread, daemon=True).start()
 
     def _fetch_thread(self):
-        wps = fetch_wallpapers(self.config)
-        self.root.after(0, lambda: self._on_fetched(wps))
+        """获取壁纸，确保返回 10 张缩略图有效的壁纸"""
+        target_count = 10
+        max_batches = 5  # 最多尝试 5 批 API 请求
+        seen_ids = set(w.id for w in self.wallpapers)
+        valid_wps = []
+
+        for batch in range(max_batches):
+            raw = fetch_wallpapers(self.config)
+            if not raw:
+                continue
+
+            for d in raw:
+                if d.get('id') in seen_ids:
+                    continue
+                seen_ids.add(d.get('id'))
+
+                # 验证缩略图是否可下载
+                thumb_url = d.get('thumbUrl', '') or d.get('largeUrl', '')
+                if download_image_bytes(thumb_url, self.config):
+                    valid_wps.append(d)
+                    if len(valid_wps) >= target_count:
+                        self.root.after(0, lambda n=len(valid_wps): self._set_status(
+                            f"已验证 {n} 张有效壁纸"))
+                        self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
+                        return
+
+            # 批次间短暂延迟，避免请求过快
+            if batch < max_batches - 1:
+                time.sleep(0.5)
+
+        self.root.after(0, lambda v=valid_wps[:]: self._on_fetched(v))
 
     def _on_fetched(self, raw_list):
         self._fetching = False
         self._btn_fetch.configure(state=NORMAL, text="  获取新壁纸  ")
 
+        # 取消正在运行的缩略图加载线程
+        self._cancel_thumbs = True
+
         if not raw_list:
-            self._set_status("获取失败，请检查网络或 token")
+            self._set_status("未获取到有效壁纸，请检查网络或 token")
             return
 
-        self.wallpapers = [Wallpaper(d) for d in raw_list]
-        self.pil_images.clear()
-        self.large_pil_images.clear()
-        self.tk_images.clear()
-        self._loading_large_for = -1
-        self.current_index = 0
+        new_wallpapers = [Wallpaper(d) for d in raw_list]
 
-        self._set_status(f"获取到 {len(self.wallpapers)} 张壁纸，正在加载缩略图...")
-        threading.Thread(target=self._load_thumbs_thread, daemon=True).start()
+        # 去重：排除已有壁纸
+        existing_ids = set(w.id for w in self.wallpapers)
+        truly_new = [w for w in new_wallpapers if w.id not in existing_ids]
 
-    def _load_thumbs_thread(self):
-        first_loaded = True
-        for idx, wp in enumerate(self.wallpapers):
+        if not truly_new:
+            self._cancel_thumbs = False
+            self._set_status("没有新的壁纸")
+            return
+
+        # 追加到现有列表
+        self.wallpapers.extend(truly_new)
+
+        # 超过上限时裁剪最旧的，并标记需要全量重载缩略图
+        need_full_reload = False
+        if len(self.wallpapers) > MAX_WALLPAPER_CACHE:
+            self.wallpapers = self.wallpapers[-MAX_WALLPAPER_CACHE:]
+            self.pil_images.clear()
+            self.large_pil_images.clear()
+            self.tk_images.clear()
+            need_full_reload = True
+
+        # 导航到第一张新壁纸
+        self.current_index = len(self.wallpapers) - len(truly_new)
+        self._cancel_thumbs = False
+
+        self._set_status(
+            f"新增 {len(truly_new)} 张壁纸，共 {len(self.wallpapers)} 张，"
+            f"正在加载缩略图...")
+
+        # 裁剪后需要全量重载；否则只加载新壁纸的缩略图
+        load_start = 0 if need_full_reload else self.current_index
+        threading.Thread(target=self._load_thumbs_thread,
+                         args=(load_start,), daemon=True).start()
+
+    def _load_thumbs_thread(self, start_idx=0):
+        # 快照当前壁纸列表，避免其他线程修改导致索引错乱
+        wps = list(self.wallpapers)
+        total = len(wps)
+        count = total - start_idx
+
+        for idx in range(start_idx, total):
+            if self._cancel_thumbs:
+                return
+            wp = wps[idx]
             result = download_image_bytes(wp.thumb_url or wp.large_url, self.config)
             if result:
                 _bytes, img = result
@@ -391,12 +458,11 @@ class WallpaperApp:
                 thumb.thumbnail(self.THUMB_SIZE, Image.LANCZOS)
                 self.pil_images[idx] = thumb
                 self.root.after(0, self._refresh_thumbs)
-                # 第一张加载成功时立即显示预览
-                if first_loaded:
-                    first_loaded = False
+                # 第一张新缩略图加载完成时立即显示预览
+                if idx == start_idx:
                     self.root.after(0, lambda i=idx: self._on_first_thumb(i))
-            self.root.after(0, lambda i=idx: self._set_status(
-                f"加载缩略图 {i + 1}/{len(self.wallpapers)}..."))
+            self.root.after(0, lambda i=idx, c=count: self._set_status(
+                f"加载缩略图 {i - start_idx + 1}/{c}..."))
 
         self.root.after(0, self._on_thumbs_done)
 
@@ -530,6 +596,8 @@ class WallpaperApp:
 
     def _load_large_thread(self, idx):
         """后台下载大图"""
+        if idx >= len(self.wallpapers):
+            return
         wp = self.wallpapers[idx]
         url = wp.large_url or wp.thumb_url
         result = download_image_bytes(url, self.config)
