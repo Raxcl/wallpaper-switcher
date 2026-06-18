@@ -93,6 +93,17 @@ def save_history(history):
 KNOWN_DEAD = {'img.hb.aicdn.com', 'gd-hbimg.huaban.com'}
 
 
+def _is_dead_url(url):
+    """快速判断 URL 是否来自已知失效域名"""
+    if not url:
+        return True
+    try:
+        from urllib.parse import urlparse
+        return urlparse(url).hostname in KNOWN_DEAD
+    except Exception:
+        return False
+
+
 def fetch_wallpapers(config):
     headers = {
         'Content-Type': 'application/json',
@@ -378,9 +389,15 @@ class WallpaperApp:
                     continue
                 seen_ids.add(d.get('id'))
 
+                # 预过滤：大图和缩略图都失效的直接跳过
+                large_url = d.get('largeUrl', '')
+                thumb_url = d.get('thumbUrl', '')
+                if _is_dead_url(large_url) and _is_dead_url(thumb_url):
+                    continue
+
                 # 验证缩略图是否可下载
-                thumb_url = d.get('thumbUrl', '') or d.get('largeUrl', '')
-                if download_image_bytes(thumb_url, self.config):
+                check_url = thumb_url if not _is_dead_url(thumb_url) else large_url
+                if download_image_bytes(check_url, self.config):
                     valid_wps.append(d)
                     if len(valid_wps) >= target_count:
                         self.root.after(0, lambda n=len(valid_wps): self._set_status(
