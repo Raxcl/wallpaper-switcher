@@ -800,6 +800,7 @@ class WallpaperApp:
     def _load_large_thread(self, idx):
         """后台下载大图"""
         if idx >= len(self.wallpapers):
+            self.root.after(0, self._hide_hd_loading)
             return
         wp = self.wallpapers[idx]
         url = wp.large_url or wp.thumb_url
@@ -807,7 +808,11 @@ class WallpaperApp:
         if result and idx == self._loading_large_for:
             _bytes, img = result
             self.large_pil_images[idx] = img
-            self.root.after(0, lambda: self._on_large_loaded(idx))
+        # 无论成功失败都回调，隐藏加载提示
+        self.root.after(0, lambda: self._on_large_loaded(idx))
+
+    def _hide_hd_loading(self):
+        self._hd_loading_label.place_forget()
 
     def _on_large_loaded(self, idx):
         """大图加载完成，如果仍是当前选中项则替换预览"""
