@@ -138,7 +138,8 @@ def download_image_bytes(url, config):
         pass
     try:
         r = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://huaban.com/',
         }, timeout=config['timeout'])
         if r.status_code != 200 or len(r.content) < 1024:
             return None
