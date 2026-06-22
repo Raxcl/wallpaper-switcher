@@ -603,7 +603,8 @@ class WallpaperApp:
 
                 large_url = d.get('largeUrl', '')
                 thumb_url = d.get('thumbUrl', '')
-                if _is_dead_url(large_url) and _is_dead_url(thumb_url):
+                # 大图域名已死 → 不可能有高清预览，直接跳过
+                if _is_dead_url(large_url):
                     continue
 
                 valid_wps.append(d)
