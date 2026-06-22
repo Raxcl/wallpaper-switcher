@@ -753,15 +753,32 @@ class WallpaperApp:
         failed_set = set(failed_indices)
         count = len(failed_indices)
         self.wallpapers = [wp for i, wp in enumerate(self.wallpapers) if i not in failed_set]
-        # 清空缓存，重新加载缩略图（因为索引已变）
-        self.pil_images.clear()
-        self.large_pil_images.clear()
-        self.tk_images.clear()
-        self.current_index = min(self.current_index, max(0, len(self.wallpapers) - 1))
-        if self.wallpapers:
-            self._cancel_thumbs = False
-            threading.Thread(target=self._load_thumbs_thread, args=(0,), daemon=True).start()
-        logger.info(f"已移除 {count} 张不可用壁纸，重新加载剩余 {len(self.wallpapers)} 张缩略图")
+
+        # 重建缓存：保留已有图片，只重映射索引（避免全部重新下载）
+        new_pil = {}
+        new_large = {}
+        new_idx = 0
+        for old_idx in sorted(self.pil_images.keys()):
+            if old_idx not in failed_set:
+                new_pil[new_idx] = self.pil_images[old_idx]
+                if old_idx in self.large_pil_images:
+                    new_large[new_idx] = self.large_pil_images[old_idx]
+                new_idx += 1
+        self.pil_images = new_pil
+        self.large_pil_images = new_large
+        self.tk_images.clear()  # tk_images 会在绘制时重建
+
+        # 修正当前选中索引
+        if self.current_index in failed_set:
+            self.current_index = min(self.current_index, max(0, len(self.wallpapers) - 1))
+        else:
+            # 计算新索引：减去被移除的、在原索引之前的数量
+            offset = sum(1 for i in failed_set if i < self.current_index)
+            self.current_index = max(0, self.current_index - offset)
+
+        self._refresh_thumbs()
+        self._update_preview()
+        logger.info(f"已移除 {count} 张无高清图的壁纸，剩余 {len(self.wallpapers)} 张")
 
     # ──────────────── 缩略图栏 ────────────────
 
