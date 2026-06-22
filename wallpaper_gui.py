@@ -243,10 +243,13 @@ def fetch_pixabay_wallpapers(config, page=1):
 def download_image_bytes(url, config):
     """下载图片，返回 (bytes, PIL.Image) 或 None"""
     if not url or not url.startswith('http'):
+        logger.debug(f"跳过无效 URL: {url}")
         return None
     try:
         from urllib.parse import urlparse
-        if urlparse(url).hostname in KNOWN_DEAD:
+        hostname = urlparse(url).hostname
+        if hostname in KNOWN_DEAD:
+            logger.debug(f"跳过已知失效域名: {hostname}")
             return None
     except Exception:
         pass
@@ -255,13 +258,19 @@ def download_image_bytes(url, config):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://huaban.com/',
         }, timeout=config['timeout'], verify=False)
-        if r.status_code != 200 or len(r.content) < 1024:
+        if r.status_code != 200:
+            logger.warning(f"下载失败 HTTP {r.status_code}: {url[:80]}")
+            return None
+        if len(r.content) < 1024:
+            logger.warning(f"下载内容过小 ({len(r.content)} bytes): {url[:80]}")
             return None
         img = Image.open(io.BytesIO(r.content))
         img.load()  # 强制加载全部数据
         img = img.convert('RGB')
+        logger.debug(f"下载成功 {img.size[0]}x{img.size[1]} ({len(r.content)//1024}KB): {url[:80]}")
         return r.content, img
-    except Exception:
+    except Exception as e:
+        logger.warning(f"下载异常 {type(e).__name__}: {url[:80]}")
         return None
 
 
@@ -700,10 +709,13 @@ class WallpaperApp:
         wps = list(self.wallpapers)
         total = len(wps)
         loaded = 0
+        logger.info(f"开始预加载大图，共 {total} 张")
         for idx in range(total):
             if self._cancel_thumbs:
+                logger.info(f"预加载被取消，已加载 {loaded}/{total}")
                 return
             if idx in self.large_pil_images:
+                loaded += 1
                 continue
             # 跳过正在被单独加载的当前选中项
             if idx == self._loading_large_for:
@@ -723,6 +735,7 @@ class WallpaperApp:
                     self.root.after(0, lambda i=idx: self._on_large_loaded(i))
             self.root.after(0, lambda l=loaded, t=total: self._set_status(
                 f"预加载高清图 {l}/{t}..."))
+        logger.info(f"预加载完成，成功 {loaded}/{total}")
         self.root.after(0, lambda: self._set_status(
             f"就绪 - 共 {len(self.wallpapers)} 张壁纸，{len(self.large_pil_images)} 张高清图已加载"))
 
@@ -870,13 +883,18 @@ class WallpaperApp:
         # 先尝试大图
         result = None
         if wp.large_url:
+            logger.debug(f"[{idx}] ID:{wp.id} 尝试 large_url: {wp.large_url[:60]}")
             result = download_image_bytes(wp.large_url, self.config)
         # 大图失败，回退到缩略图
         if not result and wp.thumb_url:
+            logger.debug(f"[{idx}] ID:{wp.id} large 失败，回退 thumb_url: {wp.thumb_url[:60]}")
             result = download_image_bytes(wp.thumb_url, self.config)
         if result and idx == self._loading_large_for:
             _bytes, img = result
             self.large_pil_images[idx] = img
+            logger.debug(f"[{idx}] ID:{wp.id} 大图加载成功 {img.size[0]}x{img.size[1]}")
+        elif not result:
+            logger.warning(f"[{idx}] ID:{wp.id} 大图和缩略图均失败")
         # 无论成功失败都回调，隐藏加载提示
         self.root.after(0, lambda: self._on_large_loaded(idx))
 
