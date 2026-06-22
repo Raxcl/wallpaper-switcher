@@ -705,7 +705,7 @@ class WallpaperApp:
         threading.Thread(target=self._preload_large_thread, daemon=True).start()
 
     def _preload_large_thread(self):
-        """后台预加载所有壁纸的大图，并过滤完全不可用的"""
+        """后台预加载所有壁纸的大图"""
         wps = list(self.wallpapers)
         total = len(wps)
         loaded = 0
@@ -722,21 +722,23 @@ class WallpaperApp:
             if idx == self._loading_large_for:
                 continue
             wp = wps[idx]
-            result = None
-            if wp.large_url:
-                result = download_image_bytes(wp.large_url, self.config)
-            if not result and wp.thumb_url:
-                result = download_image_bytes(wp.thumb_url, self.config)
+            # 只尝试大图 URL，缩略图已经在 _load_thumbs_thread 里缓存好了
+            result = download_image_bytes(wp.large_url, self.config) if wp.large_url else None
             if result:
                 _bytes, img = result
                 self.large_pil_images[idx] = img
                 loaded += 1
+                logger.debug(f"[{idx}] ID:{wp.id} 大图预加载成功 {img.size[0]}x{img.size[1]}")
                 # 如果是当前选中项，立即更新预览
                 if idx == self.current_index:
                     self.root.after(0, lambda i=idx: self._on_large_loaded(i))
             else:
-                failed_indices.append(idx)
-                logger.warning(f"[{idx}] ID:{wp.id} 大图和缩略图均不可用，将被移除")
+                # 大图失败：检查缩略图是否也没有（理论上不该发生）
+                if idx not in self.pil_images:
+                    failed_indices.append(idx)
+                    logger.warning(f"[{idx}] ID:{wp.id} 大图和缩略图均不可用，将被移除")
+                else:
+                    logger.debug(f"[{idx}] ID:{wp.id} 大图不可用，保留缩略图")
             self.root.after(0, lambda l=loaded, t=total: self._set_status(
                 f"预加载高清图 {l}/{t}..."))
 
@@ -751,22 +753,17 @@ class WallpaperApp:
     def _remove_failed_wallpapers(self, failed_indices):
         """移除大图和缩略图都不可用的壁纸"""
         failed_set = set(failed_indices)
-        removed = [self.wallpapers[i] for i in failed_indices if i < len(self.wallpapers)]
+        count = len(failed_indices)
         self.wallpapers = [wp for i, wp in enumerate(self.wallpapers) if i not in failed_set]
-        # 重建索引映射
-        new_pil = {}
-        new_large = {}
-        new_tk = {}
-        for new_idx, wp in enumerate(self.wallpapers):
-            old_idx = next((i for i, r in enumerate(removed) if r.id == wp.id), None)
-            # 这里简化处理，直接清空缓存重新加载缩略图
+        # 清空缓存，重新加载缩略图（因为索引已变）
         self.pil_images.clear()
         self.large_pil_images.clear()
         self.tk_images.clear()
         self.current_index = min(self.current_index, max(0, len(self.wallpapers) - 1))
-        self._refresh_thumbs()
-        self._update_preview()
-        logger.info(f"已移除 {len(removed)} 张不可用壁纸")
+        if self.wallpapers:
+            self._cancel_thumbs = False
+            threading.Thread(target=self._load_thumbs_thread, args=(0,), daemon=True).start()
+        logger.info(f"已移除 {count} 张不可用壁纸，重新加载剩余 {len(self.wallpapers)} 张缩略图")
 
     # ──────────────── 缩略图栏 ────────────────
 
