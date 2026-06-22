@@ -438,7 +438,8 @@ class WallpaperApp:
 
         # 水平滚动条
         self.thumb_scrollbar = ttk.Scrollbar(thumb_card, orient=HORIZONTAL,
-                                              command=self.thumb_canvas.xview)
+                                              command=self.thumb_canvas.xview,
+                                              bootstyle="secondary")
         self.thumb_scrollbar.pack(fill=X, padx=4, pady=(0, 3))
         self.thumb_canvas.configure(xscrollcommand=self.thumb_scrollbar.set)
 
