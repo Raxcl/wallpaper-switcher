@@ -680,6 +680,40 @@ class WallpaperApp:
             self.current_index = min(self.pil_images.keys())
         self._update_preview()
         self._set_status(f"就绪 - 共 {len(self.wallpapers)} 张壁纸，{len(self.pil_images)} 张加载成功")
+        # 后台预加载所有大图
+        self._cancel_thumbs = False
+        threading.Thread(target=self._preload_large_thread, daemon=True).start()
+
+    def _preload_large_thread(self):
+        """后台预加载所有壁纸的大图"""
+        wps = list(self.wallpapers)
+        total = len(wps)
+        loaded = 0
+        for idx in range(total):
+            if self._cancel_thumbs:
+                return
+            if idx in self.large_pil_images:
+                continue
+            # 跳过正在被单独加载的当前选中项
+            if idx == self._loading_large_for:
+                continue
+            wp = wps[idx]
+            result = None
+            if wp.large_url:
+                result = download_image_bytes(wp.large_url, self.config)
+            if not result and wp.thumb_url:
+                result = download_image_bytes(wp.thumb_url, self.config)
+            if result:
+                _bytes, img = result
+                self.large_pil_images[idx] = img
+                loaded += 1
+                # 如果是当前选中项，立即更新预览
+                if idx == self.current_index:
+                    self.root.after(0, lambda i=idx: self._on_large_loaded(i))
+            self.root.after(0, lambda l=loaded, t=total: self._set_status(
+                f"预加载高清图 {l}/{t}..."))
+        self.root.after(0, lambda: self._set_status(
+            f"就绪 - 共 {len(self.wallpapers)} 张壁纸，{len(self.large_pil_images)} 张高清图已加载"))
 
     # ──────────────── 缩略图栏 ────────────────
 
