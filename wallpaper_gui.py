@@ -101,7 +101,7 @@ def save_history(history):
 
 # ─────────────────────── API ───────────────────────
 
-KNOWN_DEAD = {'img.hb.aicdn.com'}
+KNOWN_DEAD = {'img.hb.aicdn.com', 'gd-hbimg.huaban.com'}
 
 
 def _is_dead_url(url):
@@ -705,10 +705,11 @@ class WallpaperApp:
         threading.Thread(target=self._preload_large_thread, daemon=True).start()
 
     def _preload_large_thread(self):
-        """后台预加载所有壁纸的大图"""
+        """后台预加载所有壁纸的大图，并过滤完全不可用的"""
         wps = list(self.wallpapers)
         total = len(wps)
         loaded = 0
+        failed_indices = []
         logger.info(f"开始预加载大图，共 {total} 张")
         for idx in range(total):
             if self._cancel_thumbs:
@@ -733,11 +734,39 @@ class WallpaperApp:
                 # 如果是当前选中项，立即更新预览
                 if idx == self.current_index:
                     self.root.after(0, lambda i=idx: self._on_large_loaded(i))
+            else:
+                failed_indices.append(idx)
+                logger.warning(f"[{idx}] ID:{wp.id} 大图和缩略图均不可用，将被移除")
             self.root.after(0, lambda l=loaded, t=total: self._set_status(
                 f"预加载高清图 {l}/{t}..."))
-        logger.info(f"预加载完成，成功 {loaded}/{total}")
+
+        # 移除完全不可用的壁纸
+        if failed_indices:
+            self.root.after(0, lambda: self._remove_failed_wallpapers(failed_indices))
+
+        logger.info(f"预加载完成，成功 {loaded}/{total}，失败 {len(failed_indices)}")
         self.root.after(0, lambda: self._set_status(
             f"就绪 - 共 {len(self.wallpapers)} 张壁纸，{len(self.large_pil_images)} 张高清图已加载"))
+
+    def _remove_failed_wallpapers(self, failed_indices):
+        """移除大图和缩略图都不可用的壁纸"""
+        failed_set = set(failed_indices)
+        removed = [self.wallpapers[i] for i in failed_indices if i < len(self.wallpapers)]
+        self.wallpapers = [wp for i, wp in enumerate(self.wallpapers) if i not in failed_set]
+        # 重建索引映射
+        new_pil = {}
+        new_large = {}
+        new_tk = {}
+        for new_idx, wp in enumerate(self.wallpapers):
+            old_idx = next((i for i, r in enumerate(removed) if r.id == wp.id), None)
+            # 这里简化处理，直接清空缓存重新加载缩略图
+        self.pil_images.clear()
+        self.large_pil_images.clear()
+        self.tk_images.clear()
+        self.current_index = min(self.current_index, max(0, len(self.wallpapers) - 1))
+        self._refresh_thumbs()
+        self._update_preview()
+        logger.info(f"已移除 {len(removed)} 张不可用壁纸")
 
     # ──────────────── 缩略图栏 ────────────────
 
