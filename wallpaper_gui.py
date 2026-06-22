@@ -434,7 +434,17 @@ class WallpaperApp:
         thumb_card.pack(fill=X, pady=(0, 4))
         self.thumb_canvas = tk.Canvas(thumb_card, height=74, highlightthickness=0,
                                       bg=self.C_CARD)
-        self.thumb_canvas.pack(fill=X, padx=4, pady=3)
+        self.thumb_canvas.pack(fill=X, padx=4, pady=(3, 0))
+
+        # 水平滚动条
+        self.thumb_scrollbar = ttk.Scrollbar(thumb_card, orient=HORIZONTAL,
+                                              command=self.thumb_canvas.xview)
+        self.thumb_scrollbar.pack(fill=X, padx=4, pady=(0, 3))
+        self.thumb_canvas.configure(xscrollcommand=self.thumb_scrollbar.set)
+
+        # 鼠标滚轮绑定
+        self.thumb_canvas.bind('<MouseWheel>', self._on_thumb_scroll)
+        self.thumb_canvas.bind('<Enter>', lambda e: self.thumb_canvas.focus_set())
 
         # 设置行
         settings_row = tk.Frame(bottom, bg=self.C_BG)
@@ -717,6 +727,10 @@ class WallpaperApp:
 
     # ──────────────── 缩略图栏 ────────────────
 
+    def _on_thumb_scroll(self, event):
+        """鼠标滚轮水平滚动缩略图栏"""
+        self.thumb_canvas.xview_scroll(-1 * (event.delta // 120), "units")
+
     def _refresh_thumbs(self):
         c = self.thumb_canvas
         c.delete('all')
@@ -755,6 +769,21 @@ class WallpaperApp:
 
         # 更新滚动区域
         c.configure(scrollregion=(0, 0, x_offset, 74))
+
+        # 自动滚动到当前选中项
+        if self.current_index in self.pil_images and x_offset > 0:
+            # 计算选中项的大致 x 位置并滚动到视野中
+            sorted_keys = sorted(self.pil_images.keys())
+            pos = sorted_keys.index(self.current_index)
+            if len(sorted_keys) > 1:
+                frac = pos / (len(sorted_keys) - 1) if len(sorted_keys) > 1 else 0
+                # 让选中项居中显示
+                canvas_width = c.winfo_width()
+                if canvas_width <= 1:
+                    canvas_width = 800
+                view_frac = canvas_width / x_offset if x_offset > 0 else 1
+                target = max(0, min(frac - view_frac / 2, 1 - view_frac))
+                c.xview_moveto(target)
 
     # ──────────────── 预览 ────────────────
 
