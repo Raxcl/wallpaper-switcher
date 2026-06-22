@@ -733,16 +733,13 @@ class WallpaperApp:
                 if idx == self.current_index:
                     self.root.after(0, lambda i=idx: self._on_large_loaded(i))
             else:
-                # 大图失败：检查缩略图是否也没有（理论上不该发生）
-                if idx not in self.pil_images:
-                    failed_indices.append(idx)
-                    logger.warning(f"[{idx}] ID:{wp.id} 大图和缩略图均不可用，将被移除")
-                else:
-                    logger.debug(f"[{idx}] ID:{wp.id} 大图不可用，保留缩略图")
+                # 大图不可用，移除该壁纸（列表只保留高清图）
+                failed_indices.append(idx)
+                logger.warning(f"[{idx}] ID:{wp.id} 大图不可用，将被移除")
             self.root.after(0, lambda l=loaded, t=total: self._set_status(
                 f"预加载高清图 {l}/{t}..."))
 
-        # 移除完全不可用的壁纸
+        # 移除没有高清图的壁纸
         if failed_indices:
             self.root.after(0, lambda: self._remove_failed_wallpapers(failed_indices))
 
@@ -751,7 +748,7 @@ class WallpaperApp:
             f"就绪 - 共 {len(self.wallpapers)} 张壁纸，{len(self.large_pil_images)} 张高清图已加载"))
 
     def _remove_failed_wallpapers(self, failed_indices):
-        """移除大图和缩略图都不可用的壁纸"""
+        """移除没有高清图的壁纸，只保留能看高清的"""
         failed_set = set(failed_indices)
         count = len(failed_indices)
         self.wallpapers = [wp for i, wp in enumerate(self.wallpapers) if i not in failed_set]
