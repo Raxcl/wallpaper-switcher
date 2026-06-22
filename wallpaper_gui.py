@@ -66,7 +66,7 @@ DEFAULT_CONFIG = {
     'auto_switch': False,
     'source': 'bing',
     'fetch_count': 10,
-    'pexels_key': '',
+    'pexels_key': 'S8lTXaFWEPTTfXRPpfCG2fsNfudReoDDm234hkSf0DLjL6BPmdIDIvSz',
     'pixabay_key': '',
 }
 
@@ -177,7 +177,7 @@ def fetch_bing_wallpapers(config):
 
 def fetch_pexels_wallpapers(config, page=1):
     """Pexels 壁纸，需要 API Key"""
-    key = config.get('pexels_key', '')
+    key = config.get('pexels_key', '') or DEFAULT_CONFIG['pexels_key']
     if not key:
         return []
     try:
