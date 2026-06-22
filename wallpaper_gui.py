@@ -101,7 +101,7 @@ def save_history(history):
 
 # ─────────────────────── API ───────────────────────
 
-KNOWN_DEAD = {'img.hb.aicdn.com', 'gd-hbimg.huaban.com'}
+KNOWN_DEAD = {'img.hb.aicdn.com', 'gd-hbimg.huaban.com', 'gimg2.baidu.com'}
 
 
 def _is_dead_url(url):
@@ -267,7 +267,7 @@ def download_image_bytes(url, config):
         img = Image.open(io.BytesIO(r.content))
         img.load()  # 强制加载全部数据
         img = img.convert('RGB')
-        logger.debug(f"下载成功 {img.size[0]}x{img.size[1]} ({len(r.content)//1024}KB): {url[:80]}")
+        logger.info(f"下载成功 {img.size[0]}x{img.size[1]} ({len(r.content)//1024}KB): {url[:80]}")
         return r.content, img
     except Exception as e:
         logger.warning(f"下载异常 {type(e).__name__}: {url[:80]}")
@@ -413,7 +413,9 @@ class WallpaperApp:
         row1 = ttk.Frame(bottom)
         row1.pack(fill=X, pady=(0, 3))
 
-        self.lbl_title = ttk.Label(row1, text="标题: -", style="Info.TLabel")
+        self.lbl_title = tk.Entry(row1, font=("Microsoft YaHei UI", 12, "bold"),
+                                   relief=tk.FLAT, bd=0, bg=self.C_BG, fg='#2c3e50',
+                                   readonlybackground=self.C_BG)
         self.lbl_title.pack(side=LEFT)
 
         self.lbl_counter = ttk.Label(row1, text="0 / 0", style="Counter.TLabel")
@@ -434,7 +436,9 @@ class WallpaperApp:
         self.btn_set.pack(side=RIGHT, padx=(0, 6))
 
         # 分辨率/标签
-        self.lbl_info = ttk.Label(bottom, text="", style="Sub.TLabel")
+        self.lbl_info = tk.Entry(bottom, font=("Microsoft YaHei UI", 9),
+                                  relief=tk.FLAT, bd=0, bg=self.C_BG, fg='#7f8c8d',
+                                  readonlybackground=self.C_BG)
         self.lbl_info.pack(anchor=W, pady=(0, 3))
 
         # 缩略图条（白底卡片）
@@ -869,13 +873,20 @@ class WallpaperApp:
 
         # 信息
         title = wp.title if wp.title else "无标题"
-        self.lbl_title.configure(text=f"标题: {title}")
+        self._set_entry_text(self.lbl_title, f"标题: {title}")
         tags = ", ".join(wp.tags) if wp.tags else "无"
-        self.lbl_info.configure(text=f"{wp.width}x{wp.height}  |  ID: {wp.id}  |  标签: {tags}")
+        self._set_entry_text(self.lbl_info, f"{wp.width}x{wp.height}  |  ID: {wp.id}  |  标签: {tags}")
         self.lbl_counter.configure(text=f"{idx + 1} / {len(self.wallpapers)}")
 
         # 更新缩略图高亮
         self._refresh_thumbs()
+
+    def _set_entry_text(self, entry, text):
+        """更新只读 Entry 的文本内容"""
+        entry.configure(state='normal')
+        entry.delete(0, 'end')
+        entry.insert(0, text)
+        entry.configure(state='readonly')
 
     def _show_preview_pil(self, pil):
         """将 PIL 图片以 cover 模式填满预览区 Canvas（裁切多余部分，无灰边）"""
