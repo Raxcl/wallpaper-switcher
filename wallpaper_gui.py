@@ -68,6 +68,7 @@ DEFAULT_CONFIG = {
     'fetch_count': 10,
     'pexels_key': 'S8lTXaFWEPTTfXRPpfCG2fsNfudReoDDm234hkSf0DLjL6BPmdIDIvSz',
     'pixabay_key': '',
+    'imgapi_category': 'dongman',
 }
 
 
@@ -240,9 +241,57 @@ def fetch_pixabay_wallpapers(config, page=1):
         return []
 
 
+def fetch_imgapi_wallpapers(config):
+    """imgapi.cn 壁纸，每次请求返回随机图片二进制"""
+    category = config.get('imgapi_category', 'dongman')
+    url = f'https://imgapi.cn/api.php?sort={category}'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    }
+    count = config.get('fetch_count', 10)
+    result = []
+    for i in range(count):
+        try:
+            r = requests.get(url, headers=headers, timeout=config['timeout'], verify=False)
+            if r.status_code != 200 or len(r.content) < 1024:
+                continue
+            # 保存到缓存目录
+            fname = f"imgapi_{int(time.time() * 1000)}_{i}.jpg"
+            path = CACHE_DIR / fname
+            path.write_bytes(r.content)
+            file_url = f"file://{path}"
+            result.append(_normalize_wp(
+                {'id': f'img_{int(time.time() * 1000)}_{i}'},
+                file_url, file_url, 'imgapi'))
+            # 设置默认分辨率
+            result[-1]['width'] = 1920
+            result[-1]['height'] = 1080
+        except Exception as e:
+            logger.warning(f"imgapi.cn 获取第 {i+1} 张失败: {e}")
+    logger.info(f"imgapi.cn 获取完成: {len(result)}/{count} 张 (分类: {category})")
+    return result
+
+
 def download_image_bytes(url, config):
-    """下载图片，返回 (bytes, PIL.Image) 或 None"""
-    if not url or not url.startswith('http'):
+    """下载图片，返回 (bytes, PIL.Image) 或 None；支持 file:// 本地路径"""
+    if not url:
+        return None
+    # 本地文件路径（imgapi.cn 预缓存的图片）
+    if url.startswith('file://'):
+        try:
+            from urllib.parse import urlparse
+            path = urlparse(url).path.lstrip('/')
+            with open(path, 'rb') as f:
+                content = f.read()
+            if len(content) < 1024:
+                return None
+            img = Image.open(io.BytesIO(content))
+            img.load()
+            img = img.convert('RGB')
+            return content, img
+        except Exception:
+            return None
+    if not url.startswith('http'):
         logger.debug(f"跳过无效 URL: {url}")
         return None
     try:
@@ -479,8 +528,8 @@ class WallpaperApp:
 
         # 壁纸源选择
         ttk.Label(settings_row, text="源:", style="Info.TLabel").pack(side=LEFT)
-        source_options = ['Bing 每日', 'Pexels', 'Pixabay', '搜图神器']
-        source_values = ['bing', 'pexels', 'pixabay', 'soutu']
+        source_options = ['Bing 每日', 'Pexels', 'Pixabay', '搜图神器', 'imgapi.cn']
+        source_values = ['bing', 'pexels', 'pixabay', 'soutu', 'imgapi']
         self._source_value_map = dict(zip(source_options, source_values))
         self._source_reverse_map = dict(zip(source_values, source_options))
         current_label = self._source_reverse_map.get(
@@ -493,6 +542,21 @@ class WallpaperApp:
             font=("Microsoft YaHei UI", 9))
         self.source_combo.pack(side=LEFT, padx=4)
         self.source_combo.bind('<<ComboboxSelected>>', self._on_source_change)
+
+        # 分类选择（仅 imgapi.cn 时显示）
+        self._cat_label = ttk.Label(settings_row, text="分类:", style="Sub.TLabel")
+        cat_options = ['动漫', '风景', '美女', '随机']
+        cat_values = ['dongman', 'fengjing', 'meizi', 'suiji']
+        self._cat_value_map = dict(zip(cat_options, cat_values))
+        self._cat_reverse_map = dict(zip(cat_values, cat_options))
+        current_cat_label = self._cat_reverse_map.get(
+            self.config.get('imgapi_category', 'dongman'), '动漫')
+        self._cat_var = tk.StringVar(value=current_cat_label)
+        self._cat_combo = ttk.Combobox(
+            settings_row, textvariable=self._cat_var,
+            values=cat_options, state='readonly', width=6,
+            font=("Microsoft YaHei UI", 9))
+        self._cat_combo.bind('<<ComboboxSelected>>', self._on_category_change)
 
         # 获取数量
         ttk.Label(settings_row, text="数量:", style="Sub.TLabel").pack(side=LEFT, padx=(6, 2))
@@ -566,10 +630,11 @@ class WallpaperApp:
         """多源获取壁纸，自动 fallback 到其他源"""
         source = self.config.get('source', 'bing')
         sources_order = {
-            'bing':   ['bing', 'pexels', 'pixabay', 'soutu'],
-            'pexels': ['pexels', 'pixabay', 'bing', 'soutu'],
-            'pixabay':['pixabay', 'pexels', 'bing', 'soutu'],
-            'soutu':  ['soutu', 'bing', 'pexels', 'pixabay'],
+            'bing':   ['bing', 'pexels', 'pixabay', 'soutu', 'imgapi'],
+            'pexels': ['pexels', 'pixabay', 'bing', 'soutu', 'imgapi'],
+            'pixabay':['pixabay', 'pexels', 'bing', 'soutu', 'imgapi'],
+            'soutu':  ['soutu', 'bing', 'pexels', 'pixabay', 'imgapi'],
+            'imgapi': ['imgapi', 'soutu', 'bing', 'pexels', 'pixabay'],
         }
         order = sources_order.get(source, sources_order['bing'])
         target_count = self.config.get('fetch_count', 10)
@@ -585,6 +650,8 @@ class WallpaperApp:
             elif src == 'pixabay':
                 page = random.randint(1, 5)
                 raw_list = fetch_pixabay_wallpapers(self.config, page=page)
+            elif src == 'imgapi':
+                raw_list = fetch_imgapi_wallpapers(self.config)
             else:
                 # 搜图神器：请求数量与目标数量一致
                 orig_size = self.config.get('page_size', 10)
@@ -596,7 +663,8 @@ class WallpaperApp:
                 continue
 
             source_name = {'bing': 'Bing', 'pexels': 'Pexels',
-                           'pixabay': 'Pixabay', 'soutu': '搜图神器'}
+                           'pixabay': 'Pixabay', 'soutu': '搜图神器',
+                           'imgapi': 'imgapi.cn'}
             self.root.after(0, lambda n=source_name.get(src, src):
                             self._set_status(f"正在从 {n} 获取壁纸..."))
 
@@ -1052,9 +1120,17 @@ class WallpaperApp:
         self.config['source'] = value
         save_config(self.config)
         name_map = {'bing': 'Bing 每日', 'pexels': 'Pexels',
-                    'pixabay': 'Pixabay', 'soutu': '搜图神器'}
+                    'pixabay': 'Pixabay', 'soutu': '搜图神器',
+                    'imgapi': 'imgapi.cn'}
         self._set_status(f"壁纸源已切换为 {name_map.get(value, value)}")
         self._update_key_visibility()
+
+    def _on_category_change(self, event=None):
+        label = self._cat_var.get()
+        value = self._cat_value_map.get(label, 'dongman')
+        self.config['imgapi_category'] = value
+        save_config(self.config)
+        self._set_status(f"分类已切换为 {label}")
 
     def _on_count_change(self, event=None):
         try:
@@ -1067,7 +1143,7 @@ class WallpaperApp:
             self.count_var.set(str(self.config.get('fetch_count', 10)))
 
     def _update_key_visibility(self):
-        """根据当前源显示/隐藏对应的 Key 输入框"""
+        """根据当前源显示/隐藏对应的 Key 输入框或分类选择器"""
         source = self.config.get('source', 'bing')
 
         # 先全部隐藏
@@ -1076,6 +1152,8 @@ class WallpaperApp:
         self._key_label_pixabay.pack_forget()
         self._key_ent_pixabay.pack_forget()
         self._btn_save_keys.pack_forget()
+        self._cat_label.pack_forget()
+        self._cat_combo.pack_forget()
 
         if source == 'pexels':
             self._key_label_pexels.configure(text="Pexels Key:")
@@ -1086,6 +1164,10 @@ class WallpaperApp:
             self._key_label_pixabay.configure(text="Pixabay Key:")
             self._key_label_pixabay.pack(side=LEFT, padx=(6, 2))
             self._key_ent_pixabay.pack(side=LEFT, padx=2)
+            self._btn_save_keys.pack(side=LEFT, padx=4)
+        elif source == 'imgapi':
+            self._cat_label.pack(side=LEFT, padx=(6, 2))
+            self._cat_combo.pack(side=LEFT, padx=2)
             self._btn_save_keys.pack(side=LEFT, padx=4)
 
     def _save_keys(self):
